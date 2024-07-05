@@ -10,7 +10,6 @@ from pygame_light2d.hull import Hull
 from pygame_light2d.color import normalize_color_arguments, denormalize_color
 from pygame_light2d.double_buff import DoubleBuff
 
-
 class Layer(Enum):
     BACKGROUND = 1,
     FOREGROUND = 2,
@@ -274,7 +273,7 @@ class LightingEngine:
         self._fbo_bg.clear(R, G, B, A)
         self._fbo_fg.clear(0, 0, 0, 0)
 
-    def render(self):
+    def render(self,offset = (0,0)):
         """
         Render the lighting effects onto the screen.
 
@@ -284,16 +283,32 @@ class LightingEngine:
         This method is responsible for the final rendering of lighting effects onto the screen.
         """
 
+        """
+        
+        offset parameter is added for adjusting the light positions based on camera movement.
+        
+        
+        """
+
+
         # Clear intermediate buffers
         self.ctx.screen.clear(0, 0, 0, 1)
         self._fbo_ao.clear(0, 0, 0, 0)
         self._buf_lt.clear(0, 0, 0, 0)
 
+
+        """
+        
+        position of 'hulls' or shadow objects, and the lights  are  offsetted.
+
+        """
+
+
         # Send hull data to SSBOs
-        self._send_hull_data()
+        self._send_hull_data(offset)
 
         # Render lights onto double buffer
-        self._render_to_buf_lt()
+        self._render_to_buf_lt(offset)
 
         # Blur lightmap for soft shadows and render onto aomap
         self._render_aomap()
@@ -361,14 +376,20 @@ class LightingEngine:
         vbo.release()
         vao.release()
 
-    def _send_hull_data(self):
+    def _send_hull_data(self,offset = (0,0)):
         # Lists with hull vertices and indices
         vertices = []
         indices = []
         for hull in self.hulls:
             if not hull.enabled:
                 continue
-            vertices += hull.vertices
+            vertices_buffer = [ ]
+
+            #the vertices of the hulls are adjusted by the offset, then added to the list. 
+
+            for vertice in hull.vertices:
+                vertices_buffer.append((int(vertice[0] - offset[0]), int(vertice[1] - offset[1])))
+            vertices += vertices_buffer
             indices.append(len(vertices))
 
         # Store hull vertex data in SSBO
@@ -380,7 +401,7 @@ class LightingEngine:
         data_ind = np.array(indices, dtype=np.int32).flatten().tobytes()
         self._ssbo_ind.write(data_ind)
 
-    def _render_to_buf_lt(self):
+    def _render_to_buf_lt(self,offset = (0,0)):
         # Disable alpha blending to render lights
         self.ctx.disable(moderngl.BLEND)
 
@@ -393,8 +414,11 @@ class LightingEngine:
             self._buf_lt.tex.use()
             self._buf_lt.fbo.use()
 
+
+            #the light position is offseted, then passed to the shader.
+
             # Send light uniforms
-            self._prog_light['lightPos'] = self._point_to_uv(light.position)
+            self._prog_light['lightPos'] = self._point_to_uv((int(light.position[0] - offset[0]), int(light.position[1] - offset[1])))
             self._prog_light['lightCol'] = light._color
             self._prog_light['lightPower'] = light.power
             self._prog_light['radius'] = light.radius
